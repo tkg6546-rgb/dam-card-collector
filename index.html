@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>マイ ダムカード コレクター</title>
+  
+  <!-- Leaflet CSS (地図表示用) -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <!-- FontAwesome (アイコン用) -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
+  <!-- Tailwind CSS (デザイン調整用) -->
+  <script src="https://cdn.tailwindcss.com"></script>
+
+  <style>
+    #map { height: calc(100vh - 64px); width: 100%; }
+    .status-badge {
+      display: inline-block;
+      padding: 0.25rem 0.5rem;
+      border-radius: 9999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .status-got { background-color: #d1fae5; color: #065f46; }
+    .status-want { background-color: #fef3c7; color: #92400e; }
+    .status-none { background-color: #f3f4f6; color: #4b5563; }
+  </style>
+</head>
+<body class="bg-slate-50 font-sans text-slate-800">
+
+  <!-- ヘッダー -->
+  <header class="bg-cyan-800 text-white shadow-md h-16 flex items-center justify-between px-4 z-10 relative">
+    <div class="flex items-center space-x-2">
+      <i class="fa-solid font-bold fa-water text-2xl text-cyan-300"></i>
+      <h1 class="text-xl font-bold tracking-wide">ダムカードコレクター</h1>
+    </div>
+    <div class="flex items-center space-x-3">
+      <button id="add-dam-btn" class="bg-cyan-600 hover:bg-cyan-500 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center space-x-1 shadow">
+        <i class="fa-solid fa-plus"></i>
+        <span>ダムを追加</span>
+      </button>
+      <button id="stats-btn" class="bg-cyan-900 hover:bg-cyan-700 text-white px-3 py-1.5 rounded-lg text-sm font-semibold transition flex items-center space-x-1">
+        <i class="fa-solid fa-chart-pie"></i>
+        <span class="hidden sm:inline">達成度</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <div class="flex flex-col md:flex-row h-[calc(100vh-64px)]">
+    <!-- サイドバー（リスト一覧） -->
+    <div class="w-full md:w-96 bg-white border-r border-slate-200 flex flex-col h-1/2 md:h-full z-0">
+      <!-- 検索・フィルター -->
+      <div class="p-3 border-b border-slate-200 bg-slate-50 space-y-2">
+        <div class="relative">
+          <input type="text" id="search-input" placeholder="ダム名や都道府県で検索..." class="w-full pl-9 pr-3 py-1.5 text-sm border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-cyan-500">
+          <i class="fa-solid fa-magnifying-glass absolute left-3 top-2.5 text-slate-400 text-sm"></i>
+        </div>
+        <div class="flex space-x-1 text-xs">
+          <button class="filter-btn active bg-cyan-700 text-white px-2.5 py-1 rounded-full" data-filter="all">すべて</button>
+          <button class="filter-btn bg-slate-200 text-slate-700 px-2.5 py-1 rounded-full" data-filter="got">獲得済み</button>
+          <button class="filter-btn bg-slate-200 text-slate-700 px-2.5 py-1 rounded-full" data-filter="want">行きたい</button>
+          <button class="filter-btn bg-slate-200 text-slate-700 px-2.5 py-1 rounded-full" data-filter="none">未獲得</button>
+        </div>
+      </div>
+
+      <!-- ダムリスト -->
+      <div id="dam-list" class="flex-1 overflow-y-auto divide-y divide-slate-100">
+        <!-- JSで動的生成 -->
+      </div>
+    </div>
+
+    <!-- 地図領域 -->
+    <div class="flex-1 h-1/2 md:h-full relative">
+      <div id="map"></div>
+    </div>
+  </div>
+
+  <!-- ダム詳細・編集モーダル -->
+  <div id="modal" class="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 z-50 hidden">
+    <div class="bg-white rounded-xl shadow-xl max-w-lg w-full max-h-[90vh] overflow-y-auto">
+      <div class="p-5 space-y-4">
+        <div class="flex justify-between items-start border-b border-slate-100 pb-3">
+          <div>
+            <span id="modal-pref" class="text-xs text-cyan-700 font-semibold uppercase tracking-wider">都道府県</span>
+            <h2 id="modal-title" class="text-xl font-bold text-slate-800">ダム名</h2>
+          </div>
+          <button id="close-modal" class="text-slate-400 hover:text-slate-600 text-lg">
+            <i class="fa-solid fa-xmark"></i>
+          </button>
+        </div>
+
+        <!-- 状態選択 -->
+        <div>
+          <label class="block text-xs font-bold text-slate-500 mb-1">コレクション状態</label>
+          <div class="grid grid-cols-3 gap-2">
+            <button class="status-opt-btn border p-2 rounded-lg text-center text-xs font-semibold" data-status="none">未訪問</button>
+            <button class="status-opt-btn border p-2 rounded-lg text-center text-xs font-semibold" data-status="want">行きたい</button>
+            <button class="status-opt-btn border p-2 rounded-lg text-center text-xs font-semibold" data-status="got">獲得済み！</button>
+          </div>
+        </div>
+
+        <!-- メモ・訪問日入力 -->
+        <div class="space-y-3 pt-2">
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">訪問日 / 獲得日</label>
+            <input type="date" id="modal-date" class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:outline-none">
+          </div>
+          <div>
+            <label class="block text-xs font-semibold text-slate-600 mb-1">メモ・思い出</label>
+            <textarea id="modal-memo" rows="3" placeholder="天候、カード配布場所の感想などを記録..." class="w-full text-sm border border-slate-300 rounded-lg p-2 focus:ring-2 focus:ring-cyan-500 focus:outline-none"></textarea>
+          </div>
+        </div>
+
+        <!-- ナビボタン -->
+        <div class="pt-2">
+          <a id="nav-btn" href="#" target="_blank" class="w-full block text-center bg-slate-100 hover:bg-slate-200 text-slate-700 text-sm font-semibold py-2 rounded-lg transition">
+            <i class="fa-solid fa-location-arrow mr-1"></i> Google Mapでルート確認
+          </a>
+        </div>
+
+        <div class="flex justify-end space-x-2 pt-3 border-t border-slate-100">
+          <button id="save-btn" class="bg-cyan-700 hover:bg-cyan-800 text-white px-4 py-2 rounded-lg text-sm font-semibold transition">保存する</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Leaflet JS (地図用) -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // サンプル用初期ダムデータ
+    const initialDams = [
+      { id: 1, name: "黒部ダム", pref: "富山県", lat: 36.5664, lng: 137.6621, type: "アーチ式" },
+      { id: 2, name: "宮ヶ瀬ダム", pref: "神奈川県", lat: 35.5532, lng: 139.2558, type: "重力式" },
+      { id: 3, name: "徳山ダム", pref: "岐阜県", lat: 35.6636, lng: 136.4678, type: "ロックフィル" },
+      { id: 4, name: "豊平峡ダム", pref: "北海道", lat: 42.9631, lng: 141.1633, type: "アーチ式" },
+      { id: 5, name: "矢木沢ダム", pref: "群馬県", lat: 36.9031, lng: 139.0525, type: "アーチ式" }
+    ];
+
+    // ローカルストレージ初期化
+    let userDams = JSON.parse(localStorage.getItem('my_dam_cards')) || initialDams.map(d => ({
+      ...d, status: 'none', date: '', memo: ''
+    }));
+
+    let currentDamId = null;
+    let selectedStatus = 'none';
+
+    // 地図の初期化 (日本中心)
+    const map = L.map('map').setView([36.5, 137.5], 6);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let markers = [];
+
+    // マーカー表示の更新
+    function updateMarkers() {
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+
+      userDams.forEach(dam => {
+        let color = '#94a3b8'; // 未訪問: グレー
+        if (dam.status === 'got') color = '#10b981'; // 獲得済: 緑
+        if (dam.status === 'want') color = '#f59e0b'; // 行きたい: オレンジ
+
+        const marker = L.circleMarker([dam.lat, dam.lng], {
+          radius: 9,
+          fillColor: color,
+          color: '#ffffff',
+          weight: 2,
+          opacity: 1,
+          fillOpacity: 0.9
+        }).addTo(map);
+
+        marker.bindTooltip(`<b>${dam.name}</b> (${dam.pref})`);
+        marker.on('click', () => openModal(dam.id));
+        markers.push(marker);
+      });
+    }
+
+    // リスト一覧の表示更新
+    function renderList(filter = 'all', search = '') {
+      const listEl = document.getElementById('dam-list');
+      listEl.innerHTML = '';
+
+      const filtered = userDams.filter(dam => {
+        const matchesFilter = filter === 'all' || dam.status === filter;
+        const matchesSearch = dam.name.includes(search) || dam.pref.includes(search);
+        return matchesFilter && matchesSearch;
+      });
+
+      filtered.forEach(dam => {
+        const item = document.createElement('div');
+        item.className = 'p-3 hover:bg-slate-50 cursor-pointer flex justify-between items-center transition';
+        
+        let statusBadge = '<span class="status-badge status-none">未獲得</span>';
+        if (dam.status === 'got') statusBadge = '<span class="status-badge status-got">獲得済</span>';
+        if (dam.status === 'want') statusBadge = '<span class="status-badge status-want">行きたい</span>';
+
+        item.innerHTML = `
+          <div>
+            <div class="text-xs text-slate-500">${dam.pref}</div>
+            <div class="font-bold text-slate-800 text-sm">${dam.name}</div>
+          </div>
+          <div>${statusBadge}</div>
+        `;
+
+        item.addEventListener('click', () => {
+          map.flyTo([dam.lat, dam.lng], 10);
+          openModal(dam.id);
+        });
+
+        listEl.appendChild(item);
+      });
+    }
+
+    // モーダル表示
+    function openModal(id) {
+      currentDamId = id;
+      const dam = userDams.find(d => d.id === id);
+      if (!dam) return;
+
+      document.getElementById('modal-title').innerText = dam.name;
+      document.getElementById('modal-pref').innerText = dam.pref;
+      document.getElementById('modal-date').value = dam.date || '';
+      document.getElementById('modal-memo').value = dam.memo || '';
+      document.getElementById('nav-btn').href = `https://www.google.com/maps/search/?api=1&query=${dam.lat},${dam.lng}`;
+
+      setStatusSelected(dam.status || 'none');
+      document.getElementById('modal').classList.remove('hidden');
+    }
+
+    function setStatusSelected(status) {
+      selectedStatus = status;
+      document.querySelectorAll('.status-opt-btn').forEach(btn => {
+        if (btn.dataset.status === status) {
+          btn.className = "status-opt-btn border p-2 rounded-lg text-center text-xs font-semibold bg-cyan-700 text-white border-cyan-700";
+        } else {
+          btn.className = "status-opt-btn border p-2 rounded-lg text-center text-xs font-semibold text-slate-600 bg-white border-slate-200 hover:bg-slate-50";
+        }
+      });
+    }
+
+    // イベントリスナー
+    document.querySelectorAll('.status-opt-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => setStatusSelected(e.target.dataset.status));
+    });
+
+    document.getElementById('close-modal').addEventListener('click', () => {
+      document.getElementById('modal').classList.add('hidden');
+    });
+
+    document.getElementById('save-btn').addEventListener('click', () => {
+      const dam = userDams.find(d => d.id === currentDamId);
+      if (dam) {
+        dam.status = selectedStatus;
+        dam.date = document.getElementById('modal-date').value;
+        dam.memo = document.getElementById('modal-memo').value;
+
+        localStorage.setItem('my_dam_cards', JSON.stringify(userDams));
+        updateMarkers();
+        renderList();
+        document.getElementById('modal').classList.add('hidden');
+      }
+    });
+
+    // 検索・フィルターイベント
+    document.getElementById('search-input').addEventListener('input', (e) => {
+      const activeFilter = document.querySelector('.filter-btn.active')?.dataset.filter || 'all';
+      renderList(activeFilter, e.target.value);
+    });
+
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        document.querySelectorAll('.filter-btn').forEach(b => {
+          b.classList.remove('active', 'bg-cyan-700', 'text-white');
+          b.classList.add('bg-slate-200', 'text-slate-700');
+        });
+        e.target.classList.add('active', 'bg-cyan-700', 'text-white');
+        e.target.classList.remove('bg-slate-200', 'text-slate-700');
+
+        const search = document.getElementById('search-input').value;
+        renderList(e.target.dataset.filter, search);
+      });
+    });
+
+    // 初回描画
+    updateMarkers();
+    renderList();
+  </script>
+</body>
+</html>
